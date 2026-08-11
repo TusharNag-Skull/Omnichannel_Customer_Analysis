@@ -1,167 +1,268 @@
-# Omnichannel Customer 360 & RFM Analytics Platform
+# Customer 360 & RFM Analytics Platform
 
-**Architecture**: Medallion Architecture (Bronze → Silver → Gold)  
-**Tech Stack**: AWS S3 | Databricks PySpark | Delta Lake | Snowflake Data Warehouse  
-**Target Domain**: Retail E-Commerce & In-Store Omnichannel Analytics  
+[![Medallion Architecture](https://img.shields.io/badge/Architecture-Medallion%20(Bronze%20%E2%86%92%20Silver%20%E2%86%92%20Gold)-blue?style=for-the-badge&logo=databricks)](docs/data_model.md)
+[![Databricks Workflows](https://img.shields.io/badge/Orchestration-Databricks%20Workflows%20(Serverless)-FF3621?style=for-the-badge&logo=databricks)](docs/architecture_diagram.md)
+[![AWS S3](https://img.shields.io/badge/Cloud-AWS%20S3-569A31?style=for-the-badge&logo=amazons3)](https://aws.amazon.com/s3/)
+[![Databricks](https://img.shields.io/badge/Engine-Databricks%20PySpark-FF3621?style=for-the-badge&logo=databricks)](https://databricks.com)
+[![Delta Lake](https://img.shields.io/badge/Storage-Delta%20Lake-0052CC?style=for-the-badge&logo=delta)](https://delta.io)
+[![Snowflake](https://img.shields.io/badge/Warehouse-Snowflake-29B5E8?style=for-the-badge&logo=snowflake)](https://snowflake.com)
+[![Power BI](https://img.shields.io/badge/BI-Power%20BI-F2C811?style=for-the-badge&logo=powerbi)](https://powerbi.microsoft.com)
 
----
-
-## 1. Project Overview
-
-This enterprise data engineering platform ingests, cleanses, standardizes, and unifies online e-commerce transactions (Olist Brazilian E-Commerce dataset) and brick-and-mortar physical store purchases into a single, analytics-ready **Customer 360 View** with **RFM (Recency, Frequency, Monetary) Segmentation**.
-
-### Business Problem
-Retail organizations frequently suffer from customer identity fragmentation across digital and physical touchpoints:
-1. **Per-Order Customer Identifiers**: Transactional systems generate new customer identifiers per order, masking repeat purchase behavior and under-counting true customer retention.
-2. **Geographic Fan-Out Joins**: Raw geolocation records contain multiple GPS readings per postal prefix (~53 coordinate readings per ZIP), causing catastrophic row duplication during analytical joins.
-3. **Data Quality & Schema Drift**: Operational data suffers from missing timestamps, inconsistent city/state casing, unvalidated payment amounts, and non-standard strings.
-
-### The Engineering Solution
-A robust, automated ELT pipeline built on the **Medallion Architecture**:
-* **Bronze Layer**: Raw payload preservation (`inferSchema=false`, zero-data-loss policy).
-* **Silver Layer**: Production-grade data cleansing, deterministic windowed deduplication, centroid coordinate aggregation, and automated quality assertion gates.
-* **Gold Layer (Snowflake Warehouse)**: High-concurrency analytical serving layer implementing Customer 360 aggregation and $NTILE(5)$ quintile RFM segmentation.
+An enterprise end-to-end data engineering platform that ingests, cleanses, standardizes, and unifies the **Olist Brazilian E-Commerce dataset** into an analytics-ready **Customer 360 view** enhanced with **RFM (Recency, Frequency, Monetary) customer segmentation**. Built on **AWS S3**, **Databricks PySpark**, **Databricks Workflows (Serverless Compute)**, **Delta Lake**, **Snowflake**, and **Power BI**.
 
 ---
 
-## 2. System Architecture & Workflows DAG
+## 1. Project Overview & Business Problem
+
+Retail e-commerce organizations struggle to build a unified view of the customer due to identity fragmentation, spatial data duplication, and data quality drift. This project implements an automated ELT pipeline to solve these challenges using the Medallion Architecture.
+
+### Key Business & Engineering Challenges
+
+1. **Per-Order Customer Identifiers**: Transactional order systems generate a new `customer_id` for every order, masking repeat purchase behavior and obscuring true customer identity.
+2. **Duplicate Geolocation Readings**: Raw spatial data contains 1,000,163 GPS readings across 19,015 ZIP prefixes (~50+ readings per prefix). Naive joins multiply order rows and corrupt revenue metrics.
+3. **Data Quality & Schema Drift**: Unvalidated payment values, missing timestamps, and inconsistent string casing require strict validation before entering downstream analytical models.
+
+### The Medallion Solution
+
+* **Bronze Layer (`workspace.bronze`)**: Ingests raw source CSV files directly from AWS S3 (`s3://omnicapstone/raw_data/`) verbatim with `inferSchema=false` and all columns preserved as `STRING` (zero data loss).
+* **Silver Layer (`workspace.silver`)**: Cleanses strings, casts datatypes, computes spatial ZIP centroids (`AVG(lat)`, `AVG(lng)`), performs deterministic windowed deduplication, and enforces fail-fast data quality gates.
+* **Gold Layer (`workspace.gold`)**: Aggregates customer purchase history, computes RFM metrics on delivered orders, applies `NTILE(5)` quintile scoring, assigns marketing segments, and publishes the serving dataset to Snowflake via automated workflow task `T01_Publish_Gold_Customer360`.
+
+---
+
+## 2. System Architecture & Workflows Orchestration
+
+### Pipeline Flow Diagram
 
 ```
-[AWS S3 Raw Storage Bucket] (s3://olist-retail-project/)
+[AWS S3 Raw Storage Bucket] (s3://omnicapstone/raw_data/ — 9 Olist Source CSV Files)
+       │
+       ▼
+[Databricks Workflows DAG (Serverless Compute) — Unity Catalog: workspace]
+   ├── BRONZE LAYER (workspace.bronze)   ──►  9 Parallel Ingestion Tasks (All STRING)
+   │
+   ├── SILVER LAYER (workspace.silver)   ──►  9 Cleaned & Typed Tasks (Centroids & Quality Gates)
+   │
+   └── GOLD LAYER (workspace.gold)       ──►  Gold_Customer_360 (RFM Segmented)
+         │
+         ▼  (T01_Publish_Gold_Customer360 Task / databricks snowflake connction.py)
+[Snowflake Data Warehouse]
+   └── CUSTOMER_360                       ──►  Target Analytics Table
          │
          ▼
-[Databricks Workflows DAG (Serverless Compute)]
-   ├── BRONZE LAYER (workspace.bronze)  ──► 10 Parallel Raw Payload Tasks
-   ├── SILVER LAYER (workspace.silver)  ──► 10 Cleaned Domain Tasks (Window Dedup & Centroid Agg)
-   └── GOLD LAYER (Gold_Customer_360)   ──► Consolidated Customer 360 Aggregation
-         │
-         ▼ (T01_Publish_Gold_Customer360 Task / Spark Snowflake Connector)
-[Snowflake Data Warehouse (RETAIL_CUSTOMER360)]
-   ├── RAW_BRONZE Schema                 ──► Staging Tables
-   ├── ANALYTICS_SILVER Schema           ──► Clean Domain Models
-   └── ANALYTICS_GOLD Schema             ──► CUSTOMER_360 View (RFM Segmented)
+[Power BI]                                ──►  Executive Dashboards
+```
+
+```mermaid
+flowchart TD
+    subgraph DataLanding ["1. Raw Data Landing (AWS S3)"]
+        A["AWS S3 Raw Storage Bucket<br/>s3://omnicapstone/raw_data/<br/>(9 Olist Source CSV Files)"]
+    end
+
+    subgraph Databricks ["2. Databricks Workflows DAG (Serverless Compute)"]
+        subgraph Bronze ["Bronze Layer (workspace.bronze)"]
+            B["100% Raw Preservation (All STRING)<br/>Bronze_Customers ... Bronze_Geolocation"]
+        end
+
+        subgraph Silver ["Silver Layer (workspace.silver)"]
+            C["Cleaned, Typed & Spatial Centroids<br/>Silver_Customers ... Silver_Geolocation"]
+            QG["Automated Fail-Fast Quality Gates"]
+        end
+
+        subgraph Gold ["Gold Layer (workspace.gold)"]
+            D["Gold_Customer_360 Table + NTILE(5) RFM Engine"]
+            PUB["T01_Publish_Gold_Customer360 Task"]
+        end
+    end
+
+    subgraph Snowflake ["3. Snowflake Data Warehouse"]
+        E["Snowflake Target Table<br/>CUSTOMER_360"]
+    end
+
+    subgraph BI ["4. Business Intelligence"]
+        F["Power BI Executive Dashboards"]
+    end
+
+    A --> B
+    B --> C
+    C --> QG
+    QG --> D
+    D --> PUB
+    PUB -- "databricks snowflake connction.py" --> E
+    E --> F
+
+    classDef default color:#000000;
+    classDef landing fill:#f3f4f6,color:#000000,stroke:#374151,stroke-width:2px;
+    classDef databricks fill:#ffedd5,color:#000000,stroke:#c2410c,stroke-width:2px;
+    classDef snowflake fill:#e0f2fe,color:#000000,stroke:#0369a1,stroke-width:2px;
+    classDef bi fill:#fef9c3,color:#000000,stroke:#a16207,stroke-width:2px;
+    class A landing;
+    class B,C,QG,D,PUB databricks;
+    class E snowflake;
+    class F bi;
 ```
 
 ---
 
 ## 3. Dataset Summary
 
-The platform processes **1.3+ million operational records** across 10 distinct datasets:
+The pipeline processes the 9 authentic datasets of the **Olist Brazilian E-Commerce Dataset** landed in AWS S3:
 
-| # | Dataset | Source File | Records | Core Entity & Description |
-|---|---|---|---|---|
-| 1 | **Customers** | `olist_customers_dataset.csv` | 99,441 | Customer profiles (`customer_id` vs `customer_unique_id`) |
-| 2 | **Geolocation** | `olist_geolocation_dataset.csv` | 1,000,163 | ZIP code prefix latitude and longitude readings |
-| 3 | **Orders** | `olist_orders_dataset.csv` | 99,441 | Online order status, purchase & delivery timestamps |
-| 4 | **Order Payments** | `olist_order_payments_dataset.csv` | 103,886 | Transaction payment methods, installments & values |
-| 5 | **Order Items** | `olist_order_items_dataset.csv` | 112,650 | Product items purchased, seller keys & prices |
-| 6 | **Products** | `olist_products_dataset.csv` | 32,951 | Product catalog attributes & category names |
-| 7 | **Category Translation** | `product_category_name_translation.csv` | 71 | Portuguese to English category mappings |
-| 8 | **Sellers** | `olist_sellers_dataset.csv` | 3,095 | Seller locations & identifiers |
-| 9 | **Order Reviews** | `olist_order_reviews_dataset.csv` | 99,224 | Customer review scores (1-5) & feedback comments |
-| 10 | **In-Store Orders** | `in_store_orders_dataset.csv` | 10,000 | Synthetic brick-and-mortar retail transactions |
+| # | Dataset | Source File | Records | Primary Grain | Key Fields |
+|---|---|---|---|---|---|
+| 1 | **Customers** | `olist_customers_dataset.csv` | 99,441 | `customer_id` | `customer_id`, `customer_unique_id`, `customer_zip_code_prefix`, `customer_city`, `customer_state` |
+| 2 | **Geolocation** | `olist_geolocation_dataset.csv` | 1,000,163 | ZIP Prefix Readings | `geolocation_zip_code_prefix`, `geolocation_lat`, `geolocation_lng`, `geolocation_city`, `geolocation_state` |
+| 3 | **Orders** | `olist_orders_dataset.csv` | 99,441 | `order_id` | `order_id`, `customer_id`, `order_status`, `order_purchase_timestamp`, `order_delivered_customer_date` |
+| 4 | **Order Payments** | `olist_order_payments_dataset.csv` | 103,886 | (`order_id`, `payment_sequential`) | `order_id`, `payment_sequential`, `payment_type`, `payment_installments`, `payment_value` |
+| 5 | **Order Items** | `olist_order_items_dataset.csv` | 112,650 | (`order_id`, `order_item_id`) | `order_id`, `order_item_id`, `product_id`, `seller_id`, `price`, `freight_value` |
+| 6 | **Products** | `olist_products_dataset.csv` | 32,951 | `product_id` | `product_id`, `product_category_name`, `product_weight_g`, `product_length_cm`, `product_height_cm` |
+| 7 | **Category Translation** | `product_category_name_translation.csv` | 71 | `product_category_name` | `product_category_name`, `product_category_name_english` |
+| 8 | **Sellers** | `olist_sellers_dataset.csv` | 3,095 | `seller_id` | `seller_id`, `seller_zip_code_prefix`, `seller_city`, `seller_state` |
+| 9 | **Order Reviews** | `olist_order_reviews_dataset.csv` | 99,224 | `review_id` | `review_id`, `order_id`, `review_score`, `review_comment_title`, `review_creation_date` |
+
+> [!NOTE]
+> **Data Provenance**: The Gold pipeline (`Gold/01_Gold_Customer_360_CORRECTED.py`) strictly uses these 9 real Olist source files and does not generate or include synthetic order data.
 
 ---
 
-## 4. Technology Stack
+## 4. Medallion Layer Implementation Details & Workflow Tasks
 
-| Component | Technology | Purpose |
+### Bronze Layer (`workspace.bronze`)
+* **Workflow Tasks**: `Bronze_Customers`, `Bronze_Orders`, `Bronze_Order_Items`, `Bronze_Products`, `Bronze_Category_Translation`, `Bronze_Sellers`, `Bronze_Payments`, `Bronze_Reviews`, `Bronze_Geolocation` (`Final_bronze/01_Bronze_Customers.py` through `Final_bronze/09_Bronze_Geolocation.py`).
+* **Behavior**: Executed in parallel on Serverless compute. Preserves exact source structure by reading directly from AWS S3 (`s3://omnicapstone/raw_data/`) (`inferSchema=false`, all columns stored as `STRING`). Zero column renaming, filtering, or null removal.
+
+### Silver Layer (`workspace.silver`)
+* **Workflow Tasks**: `Silver_Products`, `Silver_Sellers`, `Silver_Payments`, `Silver_Orders`, `Silver_Customers`, `Silver_Order_Items`, `Silver_Category_Translation`, `Silver_Reviews`, `Silver_Geolocation` (`final_silver/01_Silver_Products.py` through `final_silver/09_Silver_Geolocation.py`).
+* **Behavior**:
+  * **Identity Resolution**: Maps order `customer_id` to human customer key `customer_unique_id`.
+  * **Centroid Aggregation**: Groups raw geolocation records by `geolocation_zip_code_prefix` and calculates `AVG(geolocation_lat)` and `AVG(geolocation_lng)` (1,000,163 raw readings $\rightarrow$ 19,015 clean ZIP centroids).
+  * **Deterministic Deduplication**: Applies `Window.partitionBy(...).orderBy(...)` with `row_number() == 1` to guarantee deterministic re-runs.
+  * **Quality Gates**: Every Silver notebook verifies column presence, row count integrity, and non-null constraints, raising a `ValueError` if a check fails.
+
+### Gold Layer (`workspace.gold`) & Snowflake Publishing
+* **Workflow Tasks**: `Gold_Customer_360` (`01_Gold_Customer_360_CORRECTED.py`) and `T01_Publish_Gold_Customer360` (`360/01_Publish_Gold_Customer_360`).
+* **Behavior**:
+  * `Gold_Customer_360` filters for `delivered` orders to aggregate metrics on completed transactions.
+  * Calculates **Recency** (days since last purchase relative to system reference date), **Frequency** (total delivered orders), **Monetary** (sum of `payment_value` cast to `DECIMAL(18,2)`), and **Average Review Score**.
+  * Applies `NTILE(5)` window functions across customer metrics to calculate `r_score` (inverted: lower recency days = higher score), `f_score`, `m_score`, and concatenated `rfm_score`.
+  * Left joins Silver Geolocation centroids to attach `latitude` and `longitude`.
+  * `T01_Publish_Gold_Customer360` executes automatically upon completion to transfer the Gold table into Snowflake.
+
+---
+
+## 5. RFM Customer Segmentation Rules
+
+Marketing segments are assigned in `Gold/01_Gold_Customer_360_CORRECTED.py` based on `r_score`, `f_score`, and `m_score` rules:
+
+| RFM Segment | Rule Conditions in Code | Segment Meaning |
 |---|---|---|
-| **Cloud Storage** | AWS S3 | Central landing zone for raw source CSV datasets |
-| **Orchestration** | Databricks Workflows | DAG task dependency management & automated pipeline execution |
-| **Compute Mode** | Serverless Compute | High-performance, zero-startup-latency distributed execution |
-| **Processing Engine** | Databricks PySpark | Distributed data extraction, cleaning & transformation |
-| **Storage Format** | Delta Lake | ACID transactions, time travel & schema enforcement |
-| **Data Warehouse** | Snowflake | Serving warehouse (`RAW_BRONZE`, `ANALYTICS_SILVER`, `ANALYTICS_GOLD`) |
-| **Analytics Engine** | Snowflake SQL | Gold-layer aggregation, windowed RFM scoring (`NTILE(5)`) |
-| **Documentation** | Markdown & Mermaid | Enterprise technical reference & architecture diagrams |
+| **Champions** | `r_score >= 4` AND `f_score >= 4` AND `m_score >= 4` | High recency, high frequency, and high monetary value |
+| **Loyal Customers** | `r_score >= 3` AND `f_score >= 3` AND `m_score >= 3` | Consistent repeat buyers with solid monetary contribution |
+| **Recent Buyers** | `r_score >= 4` AND `f_score <= 2` | Recent purchasers with lower purchase frequency |
+| **At Risk / About to Sleep** | `r_score <= 2` AND `f_score >= 3` | Past frequent buyers who have not purchased recently |
+| **Churned / Lost** | `r_score <= 2` AND `f_score <= 2` | Low recency and low frequency buyers |
+| **Average / Occasional** | *Otherwise* | Baseline customer activity across remaining score combinations |
 
 ---
 
-## 5. Repository Structure
+## 6. Technology Stack
+
+| Component | Technology | File / Implementation |
+|---|---|---|
+| **Cloud Storage** | AWS S3 | S3 Landing Bucket `s3://omnicapstone/raw_data/` (source CSV location in Bronze notebooks) |
+| **Orchestration** | Databricks Workflows | Multi-task Serverless DAG managing task dependencies & automated execution |
+| **Compute Mode** | Serverless Compute | Databricks Serverless Compute (zero cold-start latency, auto-scaling) |
+| **Compute Engine** | Databricks PySpark | PySpark notebooks in `Final_bronze/`, `final_silver/`, and `Gold/` |
+| **Lakehouse Format** | Delta Lake | Unity Catalog tables (`workspace.bronze`, `workspace.silver`, `workspace.gold`) |
+| **Data Warehouse Target** | Snowflake | `CUSTOMER_360` table (published via Spark connector) |
+| **Publishing Connector** | Snowflake Spark Connector | `databricks snowflake connction.py` (Databricks Secrets `snowflake-secrets` integration) |
+| **Version Control** | Git / GitHub | Code versioning, collaboration & pipeline tracking |
+| **Analytics & BI** | Power BI | Direct Snowflake connection to `CUSTOMER_360` table |
+
+---
+
+## 7. Repository Structure
 
 ```
-├── README.md                                  # Executive platform overview
+├── README.md                                   # Project Documentation
+├── databricks snowflake connction.py           # Databricks to Snowflake Spark Publishing Script
+├── .gitignore                                  # Git exclusion file
+│
 ├── docs/
-│   ├── architecture_diagram.md                # One-Page Architecture Specification & DAG Topology
-│   ├── architecture_diagram.png                # Visual architecture graphic
+│   ├── architecture_diagram.md                # One-Page Architecture Specification & Workflows DAG
+│   ├── architecture_diagram.png                # Visual Architecture Diagram
 │   ├── end_to_end_pipeline_docs.md            # Comprehensive technical pipeline reference
-│   ├── presentation_and_interview_defense.md  # 12-slide script & 25 Q&A defense bank
-│   ├── data_model.md                          # Schema definitions & medallion lineage
-│   └── ai_usage.md                            # AI tools & engineering workflow log
+│   ├── data_model.md                          # Schema definitions & medallion lineage docs
+│   └── ai_usage.md                             # AI tool usage & governance log
 │
-├── infrastructure/
-│   ├── s3_upload.py                           # AWS S3 automated upload utility
-│   └── snowflake_setup.sql                    # Initial Snowflake DDL script
+├── Bronze/
+│   └── Final_bronze/                          # 9 Final Bronze PySpark Notebooks (Serverless Tasks)
+│       ├── 01_Bronze_Customers.py
+│       ├── 02_Bronze_Orders.py
+│       ├── 03_Bronze_Order_Items.py
+│       ├── 04_Bronze_Products.py
+│       ├── 05_Bronze_Category_Translation.py
+│       ├── 06_Bronze_Sellers.py
+│       ├── 07_Bronze_Payments.py
+│       ├── 08_Bronze_Reviews.py
+│       └── 09_Bronze_Geolocation.py
 │
-├── databricks/
-│   ├── config/
-│   │   └── pipeline_config.py                 # Centralized pipeline configuration
-│   └── notebooks/
-│       ├── 01_bronze_ingestion.py             # Pilot Bronze ingestion script
-│       └── 02_silver_transformation.py        # Pilot Silver transformation script
+├── Silver/
+│   └── final_silver/                          # 9 Final Silver PySpark Notebooks (Serverless Tasks)
+│       ├── 01_Silver_Products.py
+│       ├── 02_Silver_Sellers.py
+│       ├── 03_Silver_Payments.py
+│       ├── 04_Silver_Orders.py
+│       ├── 05_Silver_Customers.py
+│       ├── 06_Silver_Orderitems.py
+│       ├── 07_Silver_Category _Translation.py
+│       ├── 08_Silver_Reviews.py
+│       └── 09_Silver_Geolocation.py
 │
-└── Retail-Customer360/                        # Complete Team Codebase
-    ├── Bronze/
-    │   └── Final_bronze/                      # 10 Final Bronze PySpark Notebooks
-    ├── Silver/
-    │   └── final_silver/                      # 10 Final Silver PySpark Notebooks
-    ├── Snowflake/
-    │   ├── 01_snowflake_ddl.sql               # Snowflake 3-Schema Architecture DDL
-    │   └── 02_snowflake_copy.sql              # S3-to-Snowflake Ingestion Script
-    └── Gold/
-        ├── 01_Gold_Customer_360.py            # Databricks Customer 360 notebook
-        └── 01_Publish_Gold_Customer_360.py    # Snowflake publishing workflow task
+├── Gold/
+│   ├── 01_Gold_Customer_360_CORRECTED.py       # Customer 360 Aggregation & RFM Segmentation Task
+│   └── 01_Publish_Gold_Customer_360.py        # T01_Publish_Gold_Customer360 Snowflake Task
+│
+└── data/
+    └── raw/                                    # Raw Olist CSV source datasets
 ```
 
 ---
 
-## 6. Execution & Deployment Workflow
+## 8. Execution Workflow
 
-### Step 1: Land Operational Datasets in AWS S3
-Execute the python ingestion utility to populate `s3://olist-retail-project/`:
-```bash
-python infrastructure/s3_upload.py
-```
+### Step 1 — Run Databricks Workflows DAG (Serverless Compute)
+In Databricks, trigger the automated multi-task **Databricks Workflows DAG**. The workflow executes the pipeline end-to-end:
+1. **Bronze Parallel Ingestion Tasks**: Executes `Bronze_Customers` through `Bronze_Geolocation` in parallel to ingest S3 CSVs into `workspace.bronze`.
+2. **Silver Domain Cleansing Tasks**: Executes `Silver_Products` through `Silver_Order_Items` upon completion of Bronze dependencies to clean, deduplicate (`customer_unique_id`), calculate ZIP centroids, and enforce quality assertions in `workspace.silver`.
+3. **Gold Customer 360 Task**: Executes `Gold_Customer_360` (`01_Gold_Customer_360_CORRECTED.py`) once all Silver tasks complete to aggregate delivered order history, compute $NTILE(5)$ RFM metrics, assign marketing segments, and populate `workspace.gold.customer_360`.
+4. **Publish Task**: Automatically executes `T01_Publish_Gold_Customer360` (`databricks snowflake connction.py`) to transfer the final Gold dataset into Snowflake target table `CUSTOMER_360`.
 
-### Step 2: Trigger Databricks Workflows DAG (Serverless Compute)
-In Databricks, run the **Databricks Workflows DAG** which automatically executes:
-1. **Bronze Tasks**: Ingests all 10 raw datasets in parallel (`01_Bronze_Customers` through `10_Bronze_In_Store_Orders`).
-2. **Silver Tasks**: Cleans, deduplicates (`customer_unique_id`), and calculates geospatial centroids (`01_Silver_Products` through `10_Silver_In_Store_Orders`).
-3. **Gold Task**: Aggregates `Gold_Customer_360` customer profile and RFM scores.
-4. **Publish Task**: Executes `T01_Publish_Gold_Customer360` to transfer final Gold datasets directly into Snowflake.
-
-### Step 3: Snowflake Warehouse Provisioning
-1. Log into Snowflake and execute `Retail-Customer360/Snowflake/01_snowflake_ddl.sql` to provision database `RETAIL_CUSTOMER360` and schemas (`RAW_BRONZE`, `ANALYTICS_SILVER`, `ANALYTICS_GOLD`).
-2. Execute `Retail-Customer360/Snowflake/02_snowflake_copy.sql` to stage and load raw/silver data into Snowflake schemas.
-
-### Step 4: Validate Gold Customer 360 Analytics
-Query the final Customer 360 view in Snowflake:
-```sql
-SELECT 
-    rfm_segment,
-    COUNT(*) AS total_customers,
-    ROUND(AVG(monetary), 2) AS avg_spend,
-    ROUND(AVG(recency_days), 0) AS avg_recency_days
-FROM RETAIL_CUSTOMER360.ANALYTICS_GOLD.CUSTOMER_360
-GROUP BY rfm_segment
-ORDER BY total_customers DESC;
-```
+### Step 2 — Power BI Dashboard Analytics
+Connect Power BI directly to Snowflake `CUSTOMER_360` to visualize executive RFM segment dashboards and customer state distributions.
 
 ---
 
-## 7. Key Engineering Principles Enforced
+## 9. Key Engineering Standards Enforced
 
-1. **Identity Resolution (`customer_unique_id`)**: `customer_id` is a transient transaction key generated per order. `customer_unique_id` represents the human entity. Grouping by `customer_unique_id` resolves repeat buyers and prevents customer over-counting.
-2. **Centroid Geolocation Aggregation**: Raw geolocation contains ~53 coordinate points per ZIP prefix. Silver aggregates lat/lng by ZIP prefix centroid (`AVG(lat)`, `AVG(lng)`), eliminating 53x fan-out join multiplication.
-3. **Deterministic Deduplication**: Uses PySpark Window functions (`partitionBy("customer_unique_id").orderBy("customer_id")`) with `row_number() == 1` instead of non-deterministic `first()` aggregations.
-4. **Automated Quality Gates**: Every Silver job enforces 4 automated quality assertions (Schema Check, Key Uniqueness, Null Assertions, Range Validation). Any gate failure raises a pipeline-blocking exception.
+1. **Serverless Orchestration**: Pipeline tasks are orchestrated via Databricks Workflows running on Serverless Compute with automated task-dependency enforcement.
+2. **Identity Resolution**: `customer_unique_id` is enforced as the canonical customer entity key across Silver and Gold layers.
+3. **Deterministic Deduplication**: Uses `Window.partitionBy(...).orderBy(...)` with `row_number() == 1` to guarantee consistent execution results.
+4. **Automated Data Quality Gates**: Every Silver and Gold script contains assertions validating row counts, key uniqueness, schema presence, and non-null bounds.
+5. **Bronze Immutability**: Bronze tables preserve source structure verbatim without casting or filtering.
+6. **Geographic Centroid Reduction**: Reduces 1,000,163 raw geolocation readings into 19,015 clean ZIP prefix centroids (`AVG(lat)`, `AVG(lng)`), avoiding row multiplication on downstream joins.
 
 ---
 
-## 8. Team Members
+## 10. Team Members & Documentation
 
+### Team Members
 * Asvin Nigam
 * Tushar Nag
 * Harshraj Parmar
 * Preeti Vala
+
+### Project Documentation
+* [`docs/architecture_diagram.md`](docs/architecture_diagram.md) — One-Page Architecture Specification & Databricks Workflows DAG Topology.
+* [`docs/data_model.md`](docs/data_model.md) — Schema definitions and Medallion table lineage specifications.
+* [`docs/ai_usage.md`](docs/ai_usage.md) — Generative AI tool usage log and human review governance report.
