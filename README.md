@@ -1,12 +1,13 @@
 # Customer 360 & RFM Analytics Platform
 
 [![Medallion Architecture](https://img.shields.io/badge/Architecture-Medallion%20(Bronze%20%E2%86%92%20Silver%20%E2%86%92%20Gold)-blue?style=for-the-badge&logo=databricks)](docs/data_model.md)
+[![AWS S3](https://img.shields.io/badge/Cloud-AWS%20S3-569A31?style=for-the-badge&logo=amazons3)](https://aws.amazon.com/s3/)
 [![Databricks](https://img.shields.io/badge/Engine-Databricks%20PySpark-FF3621?style=for-the-badge&logo=databricks)](https://databricks.com)
 [![Delta Lake](https://img.shields.io/badge/Storage-Delta%20Lake-0052CC?style=for-the-badge&logo=delta)](https://delta.io)
 [![Snowflake](https://img.shields.io/badge/Warehouse-Snowflake-29B5E8?style=for-the-badge&logo=snowflake)](https://snowflake.com)
 [![Power BI](https://img.shields.io/badge/BI-Power%20BI-F2C811?style=for-the-badge&logo=powerbi)](https://powerbi.microsoft.com)
 
-An enterprise end-to-end data engineering platform that ingests, cleanses, standardizes, and unifies the **Olist Brazilian E-Commerce dataset** into an analytics-ready **Customer 360 view** enhanced with **RFM (Recency, Frequency, Monetary) customer segmentation**. Built on **Databricks PySpark**, **Delta Lake**, **Snowflake**, and **Power BI**.
+An enterprise end-to-end data engineering platform that ingests, cleanses, standardizes, and unifies the **Olist Brazilian E-Commerce dataset** into an analytics-ready **Customer 360 view** enhanced with **RFM (Recency, Frequency, Monetary) customer segmentation**. Built on **AWS S3**, **Databricks PySpark**, **Delta Lake**, **Snowflake**, and **Power BI**.
 
 ---
 
@@ -22,7 +23,7 @@ Retail e-commerce organizations struggle to build a unified view of the customer
 
 ### The Medallion Solution
 
-* **Bronze Layer (`workspace.bronze`)**: Ingests raw source CSV files verbatim with `inferSchema=false` and all columns preserved as `STRING` (zero data loss).
+* **Bronze Layer (`workspace.bronze`)**: Ingests raw source CSV files directly from AWS S3 (`s3://omnicapstone/raw_data/`) verbatim with `inferSchema=false` and all columns preserved as `STRING` (zero data loss).
 * **Silver Layer (`workspace.silver`)**: Cleanses strings, casts datatypes, computes spatial ZIP centroids (`AVG(lat)`, `AVG(lng)`), performs deterministic windowed deduplication, and enforces fail-fast data quality gates.
 * **Gold Layer (`workspace.gold`)**: Aggregates customer purchase history, computes RFM metrics on delivered orders, applies `NTILE(5)` quintile scoring, assigns marketing segments, and publishes the serving dataset to Snowflake.
 
@@ -33,7 +34,7 @@ Retail e-commerce organizations struggle to build a unified view of the customer
 ### Pipeline Flow Diagram
 
 ```
-[Raw Data Landing] (data/raw/ — 9 Olist CSV Files)
+[AWS S3 Raw Storage Bucket] (s3://omnicapstone/raw_data/ — 9 Olist Source CSV Files)
        │
        ▼
 [Databricks PySpark Engine — Unity Catalog: workspace]
@@ -53,8 +54,8 @@ Retail e-commerce organizations struggle to build a unified view of the customer
 
 ```mermaid
 flowchart TD
-    subgraph DataLanding ["1. Raw Data Landing"]
-        A["9 Olist Source CSV Files<br/>(data/raw/)"]
+    subgraph DataLanding ["1. Raw Data Landing (AWS S3)"]
+        A["AWS S3 Raw Storage Bucket<br/>s3://omnicapstone/raw_data/<br/>(9 Olist Source CSV Files)"]
     end
 
     subgraph Databricks ["2. Databricks PySpark Engine (Unity Catalog: workspace)"]
@@ -102,7 +103,7 @@ flowchart TD
 
 ## 3. Dataset Summary
 
-The pipeline processes the 9 authentic datasets of the **Olist Brazilian E-Commerce Dataset**:
+The pipeline processes the 9 authentic datasets of the **Olist Brazilian E-Commerce Dataset** landed in AWS S3:
 
 | # | Dataset | Source File | Records | Primary Grain | Key Fields |
 |---|---|---|---|---|---|
@@ -125,7 +126,7 @@ The pipeline processes the 9 authentic datasets of the **Olist Brazilian E-Comme
 
 ### Bronze Layer (`workspace.bronze`)
 * **Notebooks**: `Bronze/01_Bronze_Customers.py` through `Bronze/09_Bronze_Geolocation.py`.
-* **Behavior**: Preserves exact source structure (`inferSchema=false`, all columns stored as `STRING`). Zero column renaming, filtering, or null removal.
+* **Behavior**: Preserves exact source structure by reading directly from AWS S3 (`s3://omnicapstone/raw_data/`) (`inferSchema=false`, all columns stored as `STRING`). Zero column renaming, filtering, or null removal.
 
 ### Silver Layer (`workspace.silver`)
 * **Notebooks**: `Silver/01_Silver_Products.py` through `Silver/09_Silver_Geolocation.py`.
@@ -164,6 +165,7 @@ Marketing segments are assigned in `Gold/01_Gold_Customer_360_CORRECTED.py` base
 
 | Component | Technology | File / Implementation |
 |---|---|---|
+| **Cloud Storage** | AWS S3 | S3 Landing Bucket `s3://omnicapstone/raw_data/` (source CSV location in Bronze notebooks) |
 | **Compute Engine** | Databricks PySpark | PySpark notebooks in `Bronze/`, `Silver/`, and `Gold/` |
 | **Lakehouse Format** | Delta Lake | Unity Catalog tables (`workspace.bronze`, `workspace.silver`, `workspace.gold`) |
 | **Data Warehouse Target** | Snowflake | `CUSTOMER_360` table (published via Spark connector) |
