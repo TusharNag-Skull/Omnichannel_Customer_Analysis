@@ -1,0 +1,57 @@
+# ============================================================
+# .gitignore for Retail Omnichannel Customer Analytics Project
+# ============================================================
+
+# --- Data Files (NEVER commit raw data to Git) ---
+data/
+*.csv
+*.parquet
+*.json
+*.xlsx
+
+# --- Credentials and Secrets ---
+.env
+*.pem
+*.key
+credentials/
+secrets/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*.code-workspace
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Databricks ---
+.databricks/
+*.dbc
+
+# --- dbt ---
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Logs ---
+*.log
+logs/
