@@ -30,6 +30,27 @@ Retail e-commerce organizations struggle to build a unified view of the customer
 
 ## 2. System Architecture
 
+### Pipeline Flow Diagram
+
+```
+[Raw Data Landing] (data/raw/ — 9 Olist CSV Files)
+       │
+       ▼
+[Databricks PySpark Engine — Unity Catalog: workspace]
+   ├── BRONZE LAYER (workspace.bronze)   ──►  9 Raw Preservation Tables (All STRING)
+   │
+   ├── SILVER LAYER (workspace.silver)   ──►  9 Cleaned & Typed Tables (Centroids & Quality Gates)
+   │
+   └── GOLD LAYER (workspace.gold)       ──►  customer_360 (RFM Segmented)
+         │
+         ▼  (databricks snowflake connction.py)
+[Snowflake Data Warehouse]
+   └── CUSTOMER_360                       ──►  Target Analytics Table
+         │
+         ▼
+[Power BI]                                ──►  Executive Dashboards
+```
+
 ```mermaid
 flowchart TD
     subgraph DataLanding ["1. Raw Data Landing"]
@@ -66,10 +87,11 @@ flowchart TD
     D -- "databricks snowflake connction.py" --> E
     E --> F
 
-    classDef landing fill:#f9f9f9,stroke:#333,stroke-width:1px;
-    classDef databricks fill:#ffefe6,stroke:#ff3621,stroke-width:2px;
-    classDef snowflake fill:#e6f7ff,stroke:#29b5e8,stroke-width:2px;
-    classDef bi fill:#fffbe6,stroke:#f2c811,stroke-width:2px;
+    classDef default color:#000000;
+    classDef landing fill:#f3f4f6,color:#000000,stroke:#374151,stroke-width:2px;
+    classDef databricks fill:#ffedd5,color:#000000,stroke:#c2410c,stroke-width:2px;
+    classDef snowflake fill:#e0f2fe,color:#000000,stroke:#0369a1,stroke-width:2px;
+    classDef bi fill:#fef9c3,color:#000000,stroke:#a16207,stroke-width:2px;
     class A landing;
     class B,C,QG,D databricks;
     class E snowflake;
