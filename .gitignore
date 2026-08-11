@@ -55,3 +55,6 @@ dbt/logs/
 # --- Logs ---
 *.log
 logs/
+
+#Extra files
+end_to_end_pipeline_docs.md
