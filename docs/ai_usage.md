@@ -1,10 +1,4 @@
-# Deliverable 6 — AI Tool Usage & Verification Report
-
-**Project Name**: Retail Omnichannel Customer Analytics (Group 3)
-**Document**: Deliverable 6 — AI Usage & Human Verification Report 
-**Tools Employed**: Antigravity AI Coding Assistant (Gemini 3.6 Flash & Claude 4.6) 
-
----
+# AI Tool Usage & Verification Report
 
 ## 1. Overview & AI Governance Policy
 
