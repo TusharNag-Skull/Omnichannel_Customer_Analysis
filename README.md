@@ -193,7 +193,14 @@ Marketing segments are assigned in `Gold/01_Gold_Customer_360_CORRECTED.py` base
 │   ├── architecture_diagram.png                # Visual Architecture Diagram
 │   ├── end_to_end_pipeline_docs.md            # Comprehensive technical pipeline reference
 │   ├── data_model.md                          # Schema definitions & medallion lineage docs
+│   ├── validation_results.md                  # Automated Data Quality & Row Reconciliation Audit Report
 │   └── ai_usage.md                             # AI tool usage & governance log
+│
+├── tests/                                      # Automated Data Quality & Reconciliation Test Suite
+│   ├── test_schema_contracts.py               # Schema Contract & Column Type Assertion Suite
+│   ├── test_data_quality.py                   # DQ Rules, Null Limits & Referential Integrity Suite
+│   ├── test_row_count_reconciliation.py       # Medallion Stage-by-Stage Row Count Auditor
+│   └── run_validation_suite.py                # Master Automated Test Suite Execution Harness
 │
 ├── Bronze/
 │   └── Final_bronze/                          # 9 Final Bronze PySpark Notebooks (Serverless Tasks)
@@ -265,4 +272,5 @@ Connect Power BI directly to Snowflake `CUSTOMER_360` to visualize executive RFM
 ### Project Documentation
 * [`docs/architecture_diagram.md`](docs/architecture_diagram.md) — One-Page Architecture Specification & Databricks Workflows DAG Topology.
 * [`docs/data_model.md`](docs/data_model.md) — Schema definitions and Medallion table lineage specifications.
+* [`docs/validation_results.md`](docs/validation_results.md) — Pipeline Data Quality, Schema Contracts & Row-Count Reconciliation Audit Report.
 * [`docs/ai_usage.md`](docs/ai_usage.md) — Generative AI tool usage log and human review governance report.
