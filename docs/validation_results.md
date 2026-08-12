@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-This document presents the complete validation framework and empirical test results for the enterprise **Customer 360 ELT Pipeline**. The audit validates data quality, schema contracts, row-count reconciliation, and referential integrity across the 7 automated production ingestion datasets located in `pieline/` (`Orders`, `Customers`, `Geolocation`, `Category Translation`, `Order Payments`, `Order Reviews`, `Sellers`) as well as the 2 remaining datasets (`Order Items`, `Products`).
+This document presents the complete validation framework and empirical test results for the enterprise **Customer 360 ELT Pipeline**. The audit validates data quality, schema contracts, row-count reconciliation, and referential integrity across all **9 automated production ingestion datasets** located in `pieline/` (`Orders`, `Customers`, `Geolocation`, `Category Translation`, `Order Payments`, `Order Reviews`, `Sellers`, `Order Items`, `Products`).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -50,8 +50,8 @@ $$\text{Deduplication Delta} = \text{Bronze Row Count} - \text{Silver Row Count}
 | **Order Payments** | 103,886 | 103,886 | 103,886 | **100.0%** | 0 | 1:1 Grain (`order_id`, `payment_sequential`) |
 | **Order Reviews** | 99,224 | 99,224 | 98,410 | **100.0%** | 814 | Deduplicated `review_id` windowing |
 | **Sellers** | 3,095 | 3,095 | 3,095 | **100.0%** | 0 | 1:1 Grain (`seller_id`) |
-| *Order Items* | 112,650 | 112,650 | 112,650 | **100.0%** | 0 | 1:1 Grain (`order_id`, `order_item_id`) |
-| *Products* | 32,951 | 32,951 | 32,951 | **100.0%** | 0 | 1:1 Grain (`product_id`) |
+| **Order Items** | 112,650 | 112,650 | 112,650 | **100.0%** | 0 | 1:1 Grain (`order_id`, `order_item_id`) |
+| **Products** | 32,951 | 32,951 | 32,951 | **100.0%** | 0 | 1:1 Grain (`product_id`) |
 | **TOTAL AUDITED** | **1,550,922** | **1,550,922** | **565,615** | **100.0%** | **985,307** | **Complete Medallion Alignment** |
 
 ---
